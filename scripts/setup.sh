@@ -71,7 +71,7 @@ step_moltenvk() {
     local lib="$WINE_ROOT/lib/libMoltenVK.dylib"
     [ -f "$lib.wine11" ] && return
     [ -d "$V/MoltenVK/.git" ] || git clone "$MOLTENVK_REPO" "$V/MoltenVK"
-    # pinned commit, and refuse to build a tree with local changes
+    # vendor/MoltenVK is ours: reset it to the pinned commit and wipe anything else in it
     git -C "$V/MoltenVK" checkout -q --force "$MOLTENVK_COMMIT"
     git -C "$V/MoltenVK" clean -qfdx
     git -C "$V/MoltenVK" apply --check "$ROOT/patches/moltenvk-null-descriptor-sets.patch" 2>/dev/null &&
@@ -88,12 +88,16 @@ step_winesrc() {
         fetch "$WINE_SRC_URL" "$DL/wine-11.17.tar.xz" "$WINE_SRC_SHA256"
         mkdir -p "$V/wine-src" && tar -xJf "$DL/wine-11.17.tar.xz" -C "$V/wine-src" --strip-components=1
     }
-    [ -f "$V/wine-build/config.status" ] && return
+    if [ -f "$V/wine-build/config.status" ]; then
+        grep -q CS2MAC_SINGLE_GSBASE "$V/wine-build/config.status" && return
+        echo "vendor/wine-build was configured without CS2MAC_SINGLE_GSBASE; delete it and rerun" >&2; exit 1
+    fi
     rm -rf "$V/wine-build" && cp -R "$V/wine-src" "$V/wine-build"
     (cd "$V/wine-build" &&
         patch -p1 < "$ROOT/patches/wine-macos-single-gsbase.patch" &&
         patch -p1 < "$ROOT/patches/wine-macos-gptk-d3dmetal.patch" &&
-        PATH="/opt/homebrew/opt/bison/bin:$PATH" CC="clang -arch x86_64" \
+        # the PE half of the single-gsbase patch (loader.c) is compiled only with this define
+        PATH="/opt/homebrew/opt/bison/bin:$PATH" CC="clang -arch x86_64" x86_64_CFLAGS="-g -O2 -DCS2MAC_SINGLE_GSBASE" \
         LDFLAGS="-L/opt/homebrew/opt/openssl@1.1/lib" CPPFLAGS="-I/opt/homebrew/opt/openssl@1.1/include" \
         x86 ./configure --enable-archs=x86_64,i386 --without-x --disable-tests --without-freetype \
             --without-gstreamer --without-sdl --without-gphoto --without-sane --without-usb --without-krb5 \
@@ -123,6 +127,10 @@ step_ntdll() {
     # The patch touches both halves (unix/signal_x86_64.c and loader.c); install both from one tree.
     install_built dlls/ntdll/ntdll.so x86_64-unix/ntdll.so
     install_built dlls/ntdll/x86_64-windows/ntdll.dll x86_64-windows/ntdll.dll
+    # prove the loader.c half was compiled in: it is the only store to %gs:0x58 in the PE ntdll
+    local dis; dis="$(x86_64-w64-mingw32-objdump -d "$WINE_ROOT/lib/wine/x86_64-windows/ntdll.dll")"
+    grep -Eq 'mov +%r[a-z0-9]+,%gs:0x58' <<<"$dis" ||
+        { echo "PE ntdll.dll lacks the single-gsbase TLS store; check $LOGS/wine-make-ntdll.log" >&2; exit 1; }
 }
 
 step_winemac() {
@@ -130,7 +138,8 @@ step_winemac() {
     step_winesrc
     build_dll winemac.drv
     install_built dlls/winemac.drv/winemac.so x86_64-unix/winemac.so
-    nm -gU "$WINE_ROOT/lib/wine/x86_64-unix/winemac.so" | grep -q macdrv_functions
+    local syms; syms="$(nm -gU "$WINE_ROOT/lib/wine/x86_64-unix/winemac.so")"
+    grep -q macdrv_functions <<<"$syms" || { echo "winemac.so lacks macdrv_functions" >&2; exit 1; }
 }
 
 step_gptk() {
@@ -175,7 +184,7 @@ step_webhelper() {
 step_steamcfg() {
     log "Steam: disable the in-game overlay for CS2 (its orphaned helper crashes under Wine)"
     for f in "$STEAM_DIR"/userdata/*/config/localconfig.vdf; do
-        [ -f "$f" ] && python3 "$ROOT/scripts/steam-no-overlay.py" "$f"
+        if [ -f "$f" ]; then python3 "$ROOT/scripts/steam-no-overlay.py" "$f"; fi
     done
 }
 

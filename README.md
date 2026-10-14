@@ -3,10 +3,12 @@
 > **Hardened fork** of [PierreAndreis/cs2mac](https://github.com/PierreAndreis/cs2mac) at
 > `28b3210`, reviewed line by line before use. Changes from upstream:
 >
-> - every download is checked against a pinned SHA-256 (`scripts/setup.sh`); MoltenVK builds from
+> - every file setup fetches itself is checked against a pinned SHA-256 (Homebrew and MoltenVK's
+>   own `fetchDependencies` are not covered) (`scripts/setup.sh`); MoltenVK builds from
 >   a clean checkout of its pinned commit
-> - both halves of the single-gsbase Wine patch are installed (`ntdll.so` and `ntdll.dll`);
->   upstream only installed the Unix half
+> - both halves of the single-gsbase Wine patch are installed (`ntdll.so` and `ntdll.dll`); the
+>   `loader.c` half is now actually compiled (`-DCS2MAC_SINGLE_GSBASE`; upstream's `__APPLE__` guard
+>   is never defined for PE code) and setup checks the built DLL for it
 > - the fast UDP socket patch is removed (it skips wineserver's socket bookkeeping)
 > - Steam gets its CEF flags directly; the `steamwebhelper.exe` wrapper (bounds-checked now) and
 >   `-noverifyfiles` are opt-in via `CS2MAC_STEAM_WRAPPER=1`
@@ -56,7 +58,7 @@ D3DMetal otherwise gets. `docs/ARCHITECTURE.md` walks through it.
 ## Quick start
 
 ```sh
-git clone https://github.com/PierreAndreis/cs2mac && cd cs2mac
+cd ~/fun/cs2mac       # this hardened fork, branch `hardened`; do not clone upstream
 ./cs2mac setup        # downloads Wine, MoltenVK, DXVK, Steam; builds the patched bits; creates the prefix
 ./cs2mac steam        # opens Steam; log in, install Counter-Strike 2
 ./cs2mac play         # launches CS2 on the d3dmetal backend, borderless at display size

@@ -4,13 +4,13 @@
      return TRUE;
  }
  
-+/* cs2mac single-gsbase (macOS x86_64): Windows code reads the TLS pointer through %gs:0x58, a pthread
++/* cs2mac single-gsbase (macOS x86_64, PE side built with -DCS2MAC_SINGLE_GSBASE): Windows code reads the TLS pointer through %gs:0x58, a pthread
 + * TSD slot that the dispatchers reload from the TEB whenever a thread returns to PE code. The current
 + * thread is running PE code right now, so its live slot has to be updated too. */
 +static void set_tls_pointer( TEB *teb, void *ptr )
 +{
 +    teb->ThreadLocalStoragePointer = ptr;
-+#if defined(__APPLE__) && defined(__x86_64__)
++#if defined(CS2MAC_SINGLE_GSBASE) && defined(__x86_64__)
 +    if (teb == NtCurrentTeb()) __asm__ volatile ("movq %0,%%gs:0x58" :: "r" (ptr));
 +#endif
 +}
