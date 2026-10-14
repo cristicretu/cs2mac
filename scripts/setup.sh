@@ -172,12 +172,13 @@ step_gamemode() {
 }
 
 step_webhelper() {
-    # Fallback only (CS2MAC_STEAM_WRAPPER=1): ./cs2mac steam passes the same flags to Steam itself.
+    # Used by ./cs2mac steam unless CS2MAC_STEAM_WRAPPER=0. Built for the GUI subsystem so Wine
+    # opens no console window for it.
     log "Steam: steamwebhelper wrapper (CEF with GPU off in one process, fixes black Steam windows)"
     local cef="$STEAM_DIR/bin/cef/cef.win64" w="$ROOT/tools/webhelper"
     [ -f "$cef/steamwebhelper_real.exe" ] || mv "$cef/steamwebhelper.exe" "$cef/steamwebhelper_real.exe"
     [ "$w/steamwebhelper.exe" -nt "$w/steamwebhelper.c" ] ||
-        x86_64-w64-mingw32-gcc -O2 -municode -o "$w/steamwebhelper.exe" "$w/steamwebhelper.c"
+        x86_64-w64-mingw32-gcc -O2 -municode -mwindows -o "$w/steamwebhelper.exe" "$w/steamwebhelper.c"
     cmp -s "$w/steamwebhelper.exe" "$cef/steamwebhelper.exe" || cp "$w/steamwebhelper.exe" "$cef/steamwebhelper.exe"
 }
 
@@ -213,6 +214,6 @@ step_steam() {
     [ -f "$STEAM_DIR/steam.exe" ] || { echo "Steam installer did not produce steam.exe, see $LOGS/steam-install.log"; exit 1; }
 }
 
-steps=("$@"); [ ${#steps[@]} -gt 0 ] || steps=(deps wine dxvk moltenvk ntdll winemac gptk gamemode prefix steam steamcfg)
+steps=("$@"); [ ${#steps[@]} -gt 0 ] || steps=(deps wine dxvk moltenvk ntdll winemac gptk gamemode prefix steam webhelper steamcfg)
 for s in "${steps[@]}"; do "step_$s"; done
 log "done. Next: ./cs2mac steam (log in, install Counter-Strike 2), then ./cs2mac play"

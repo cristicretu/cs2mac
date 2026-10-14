@@ -10,8 +10,11 @@
 >   `loader.c` half is now actually compiled (`-DCS2MAC_SINGLE_GSBASE`; upstream's `__APPLE__` guard
 >   is never defined for PE code) and setup checks the built DLL for it
 > - the fast UDP socket patch is removed (it skips wineserver's socket bookkeeping)
-> - Steam gets its CEF flags directly; the `steamwebhelper.exe` wrapper (bounds-checked now) and
->   `-noverifyfiles` are opt-in via `CS2MAC_STEAM_WRAPPER=1`
+> - the `steamwebhelper.exe` wrapper is bounds-checked and built without a console window. It is
+>   still needed (Steam ignores `-cef-single-process`; the flags alone leave a black window), and so
+>   is `-noverifyfiles`, which stops Steam checking its own files. `CS2MAC_STEAM_WRAPPER=0` skips both
+> - `./cs2mac steam` resets the prefix to stock DirectX first: D3DMetal loaded into Steam's GPU probe
+>   crashes it (stock ntdll) or stalls its downloads (patched ntdll). `play` switches CS2 to D3DMetal
 > - no passwords on the command line; direct `cs2.exe` launches always add `-insecure`
 > - `./cs2mac stop` only kills processes in this Wine prefix (`wineserver -k`)
 > - Steam's `localconfig.vdf` is backed up before the overlay is disabled

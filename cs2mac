@@ -39,13 +39,18 @@ case "$cmd" in
   steam)
     [ -f "$STEAM_DIR/steam.exe" ] || { echo "Steam not installed, run ./cs2mac setup" >&2; exit 1; }
     steam_running && { echo "Steam already running"; exit 0; }
+    # Steam must never load D3DMetal: its GPU probe pulls in dxgi.dll at startup, and D3DMetal there
+    # crashes or hangs Steam's downloads. The backend is prefix-wide, so reset it here; `play`
+    # switches to the game's backend once Steam is up and has its own dxgi loaded.
+    [ "$(prefix_backend)" = wined3d ] || bash "$ROOT/scripts/backend.sh" wined3d >/dev/null
     # Steam's CEF UI draws black windows under Wine on macOS unless the GPU is off and it runs in one
-    # process. Steam takes those flags itself; CS2MAC_STEAM_WRAPPER=1 falls back to the upstream
-    # steamwebhelper.exe wrapper, which needs -noverifyfiles so Steam does not restore its helper.
+    # process. Steam honours -cef-disable-gpu but not -cef-single-process (tested 2026-10-14), so the
+    # upstream steamwebhelper.exe wrapper is the default; it needs -noverifyfiles so Steam does not
+    # restore its own helper. CS2MAC_STEAM_WRAPPER=0 tries the flags alone.
     # Log in through the Steam window: never put a password on the command line.
     mkdir -p "$ROOT/build/logs"
-    flags=(-silent -cef-disable-gpu -cef-disable-gpu-compositing -cef-single-process)
-    if [ "${CS2MAC_STEAM_WRAPPER:-0}" = 1 ]; then
+    flags=(-cef-disable-gpu -cef-disable-gpu-compositing -cef-single-process)
+    if [ "${CS2MAC_STEAM_WRAPPER:-1}" = 1 ]; then
         cef="$STEAM_DIR/bin/cef/cef.win64"
         if ! cmp -s "$ROOT/tools/webhelper/steamwebhelper.exe" "$cef/steamwebhelper.exe"; then
             [ "$(stat -f%z "$cef/steamwebhelper.exe")" -gt 1000000 ] && mv "$cef/steamwebhelper.exe" "$cef/steamwebhelper_real.exe"

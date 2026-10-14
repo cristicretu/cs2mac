@@ -44,9 +44,9 @@ from it are used; the toolkit's own Wine is never run.
 ```
 
 Starts Steam inside the prefix. Log in, then install Counter-Strike 2 from the library (about
-35 GB). Steam's UI is Chromium; `./cs2mac steam` starts it with `-cef-disable-gpu
--cef-single-process` so it renders under Wine. If the window still stays black, quit with
-`./cs2mac stop` and retry with the upstream wrapper: `CS2MAC_STEAM_WRAPPER=1 ./cs2mac steam`.
+35 GB). Steam's UI is Chromium; `./cs2mac steam` runs it through the `steamwebhelper.exe` wrapper
+(GPU off, single process) because Steam ignores `-cef-single-process` and the window otherwise stays
+black. It also switches the prefix back to stock DirectX first, since Steam must not load D3DMetal.
 Always log in through the Steam window; never pass a password on the command line.
 
 Keep Steam running while you play; CS2 refuses to start without it.
