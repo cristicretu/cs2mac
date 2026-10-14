@@ -1,8 +1,23 @@
 # cs2mac
 
+> **Hardened fork** of [PierreAndreis/cs2mac](https://github.com/PierreAndreis/cs2mac) at
+> `28b3210`, reviewed line by line before use. Changes from upstream:
+>
+> - every download is checked against a pinned SHA-256 (`scripts/setup.sh`); MoltenVK builds from
+>   a clean checkout of its pinned commit
+> - both halves of the single-gsbase Wine patch are installed (`ntdll.so` and `ntdll.dll`);
+>   upstream only installed the Unix half
+> - the fast UDP socket patch is removed (it skips wineserver's socket bookkeeping)
+> - Steam gets its CEF flags directly; the `steamwebhelper.exe` wrapper (bounds-checked now) and
+>   `-noverifyfiles` are opt-in via `CS2MAC_STEAM_WRAPPER=1`
+> - no passwords on the command line; direct `cs2.exe` launches always add `-insecure`
+> - `./cs2mac stop` only kills processes in this Wine prefix (`wineserver -k`)
+> - Steam's `localconfig.vdf` is backed up before the overlay is disabled
+> - benchmark, OCR, synthetic-input and workshop tooling removed
+
 Run Counter-Strike 2 (the Windows build) on Apple Silicon Macs through a small, custom
 translation shim: Wine 11 for the Win32 layer, Metal for the GPU, and a launcher that picks and
-tunes the graphics backend and benchmarks it.
+tunes the graphics backend.
 
 Educational project. Valve does not ship CS2 for macOS; this is a study of how far modern
 translation layers (MoltenVK, DXVK, Apple's D3DMetal) get on an M-series GPU, what breaks, and
@@ -44,8 +59,7 @@ D3DMetal otherwise gets. `docs/ARCHITECTURE.md` walks through it.
 git clone https://github.com/PierreAndreis/cs2mac && cd cs2mac
 ./cs2mac setup        # downloads Wine, MoltenVK, DXVK, Steam; builds the patched bits; creates the prefix
 ./cs2mac steam        # opens Steam; log in, install Counter-Strike 2
-./cs2mac play         # launches CS2 on the d3dmetal backend, 1280x720 windowed
-./cs2mac bench all    # benchmarks the three backends back to back
+./cs2mac play         # launches CS2 on the d3dmetal backend, borderless at display size
 ```
 
 `./cs2mac play dxvk 1920x1080` picks another backend and resolution. `docs/USAGE.md` has every
@@ -54,9 +68,9 @@ subcommand, `docs/TUNING.md` the knobs and what they did.
 ## Layout
 
 ```
-cs2mac              launcher (setup | steam | play | bench | backend | status | stop)
-scripts/            setup.sh, backend.sh (switch D3D11 implementation), run-cs2.sh, bench.sh,
-                    env.sh (paths and tunables), Swift helpers for window capture and FPS OCR
+cs2mac              launcher (setup | steam | play | backend | status | stop)
+scripts/            setup.sh, backend.sh (switch D3D11 implementation), run-cs2.sh,
+                    env.sh (paths and tunables), steam-no-overlay.py
 shim/               gptk.c + gptk.def (the trampoline DLL), patch_imports.py, d3d11probe.c
 patches/            wine-macos-single-gsbase.patch, wine-macos-gptk-d3dmetal.patch,
                     moltenvk-null-descriptor-sets.patch

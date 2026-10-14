@@ -2,7 +2,7 @@
 # One-shot setup for cs2mac. Idempotent: every step checks for its output first.
 #
 #   setup.sh            run every step
-#   setup.sh <step>...  run only the named steps (deps wine dxvk moltenvk ntdll winemac gptk gamemode tools prefix steam webhelper steamcfg)
+#   setup.sh <step>...  run only the named steps (deps wine dxvk moltenvk ntdll winemac gptk gamemode prefix steam steamcfg, plus webhelper)
 #
 # Nothing proprietary is redistributed: Wine, DXVK and MoltenVK are fetched from
 # their upstream releases, Steam from Valve, and D3DMetal comes from Apple's
@@ -20,8 +20,25 @@ MOLTENVK_REPO="https://github.com/KhronosGroup/MoltenVK.git"
 MOLTENVK_COMMIT="4aaf714aa1b3e78e26ecfcefa9c75e9a576c500b"   # 1.4.3 development head, 2026-09-04
 STEAM_URL="https://cdn.fastly.steamstatic.com/client/installer/SteamSetup.exe"
 
+# SHA-256 of every download, checked before use (cached files too). Recorded 2026-10-14:
+#   Wine build: matches the digest GitHub publishes for the release asset
+#   Wine source: GPG signature by Alexandre Julliard (DA23 579A 74D4 AD9A F9D3  F945 CEFA C8EA AF17 519D)
+#   DXVK, Steam: first download (GitHub stores no digest for that DXVK asset; Valve publishes none)
+# Valve replaces SteamSetup.exe in place; on a mismatch, re-verify the new file before updating its hash.
+WINE_TARBALL_SHA256="c2b3a8274dbc594deaa64e40469b607cbc4aa8ef5656dec4c5f6f3dac0da770c"
+WINE_SRC_SHA256="8e752e29bba2901ad9f915139345c6ee67184b099d425704d915971ca5c055fc"
+DXVK_SHA256="f67d99d0a8eeedd7d406b283a3df9f939b5965acb00efcb33d0c6235c195a516"
+STEAM_SHA256="7d3654531c32d941b8cae81c4137fc542172bfa9635f169cb392f245a0a12bcb"
+
 log() { printf '\n[setup] %s\n' "$*"; }
-fetch() { [ -f "$2" ] || curl -fL --retry 3 -o "$2" "$1"; }
+fetch() { # <url> <dest> <sha256>
+    if [ ! -f "$2" ]; then
+        curl -fL --retry 3 -o "$2.part" "$1"
+        mv "$2.part" "$2"
+    fi
+    local got; got="$(shasum -a 256 "$2" | cut -d' ' -f1)"
+    [ "$got" = "$3" ] || { echo "checksum mismatch for $2: expected $3, got $got" >&2; exit 1; }
+}
 x86() { arch -x86_64 "$@"; }
 sign() { codesign -fs - "$1" >/dev/null 2>&1 || true; }
 
@@ -37,7 +54,7 @@ step_deps() {
 step_wine() {
     log "Wine 11.17 (Gcenx build)"
     [ -x "$WINE" ] && return
-    fetch "$WINE_TARBALL_URL" "$DL/wine-devel-11.17-osx64.tar.xz"
+    fetch "$WINE_TARBALL_URL" "$DL/wine-devel-11.17-osx64.tar.xz" "$WINE_TARBALL_SHA256"
     mkdir -p "$V/wine-11.17" && tar -xJf "$DL/wine-devel-11.17-osx64.tar.xz" -C "$V/wine-11.17"
     [ -x "$WINE" ] || { echo "unexpected Wine layout under $V/wine-11.17"; exit 1; }
 }
@@ -45,7 +62,7 @@ step_wine() {
 step_dxvk() {
     log "DXVK-macOS 1.10.3 (async)"
     [ -f "$V/dxvk-macos/x64/d3d11.dll" ] && return
-    fetch "$DXVK_URL" "$DL/dxvk-macos.tar.gz"
+    fetch "$DXVK_URL" "$DL/dxvk-macos.tar.gz" "$DXVK_SHA256"
     mkdir -p "$V/dxvk-macos" && tar -xzf "$DL/dxvk-macos.tar.gz" -C "$V/dxvk-macos" --strip-components=1
 }
 
@@ -54,7 +71,9 @@ step_moltenvk() {
     local lib="$WINE_ROOT/lib/libMoltenVK.dylib"
     [ -f "$lib.wine11" ] && return
     [ -d "$V/MoltenVK/.git" ] || git clone "$MOLTENVK_REPO" "$V/MoltenVK"
-    git -C "$V/MoltenVK" checkout -q "$MOLTENVK_COMMIT"
+    # pinned commit, and refuse to build a tree with local changes
+    git -C "$V/MoltenVK" checkout -q --force "$MOLTENVK_COMMIT"
+    git -C "$V/MoltenVK" clean -qfdx
     git -C "$V/MoltenVK" apply --check "$ROOT/patches/moltenvk-null-descriptor-sets.patch" 2>/dev/null &&
         git -C "$V/MoltenVK" apply "$ROOT/patches/moltenvk-null-descriptor-sets.patch"
     (cd "$V/MoltenVK" && ./fetchDependencies --macos > "$LOGS/moltenvk-deps.log" 2>&1 && make macos > "$LOGS/moltenvk-make.log" 2>&1)
@@ -66,7 +85,7 @@ step_moltenvk() {
 step_winesrc() {
     log "Wine 11.17 source (pristine copy in vendor/wine-src, patched build tree in vendor/wine-build)"
     [ -f "$V/wine-src/VERSION" ] || {
-        fetch "$WINE_SRC_URL" "$DL/wine-11.17.tar.xz"
+        fetch "$WINE_SRC_URL" "$DL/wine-11.17.tar.xz" "$WINE_SRC_SHA256"
         mkdir -p "$V/wine-src" && tar -xJf "$DL/wine-11.17.tar.xz" -C "$V/wine-src" --strip-components=1
     }
     [ -f "$V/wine-build/config.status" ] && return
@@ -74,7 +93,6 @@ step_winesrc() {
     (cd "$V/wine-build" &&
         patch -p1 < "$ROOT/patches/wine-macos-single-gsbase.patch" &&
         patch -p1 < "$ROOT/patches/wine-macos-gptk-d3dmetal.patch" &&
-        patch -p1 < "$ROOT/patches/wine-fast-udp-sockets.patch" &&
         PATH="/opt/homebrew/opt/bison/bin:$PATH" CC="clang -arch x86_64" \
         LDFLAGS="-L/opt/homebrew/opt/openssl@1.1/lib" CPPFLAGS="-I/opt/homebrew/opt/openssl@1.1/include" \
         x86 ./configure --enable-archs=x86_64,i386 --without-x --disable-tests --without-freetype \
@@ -83,27 +101,35 @@ step_winesrc() {
             --without-oss --without-netapi > "$LOGS/wine-configure.log" 2>&1)
 }
 
-build_unix_lib() { # <make target dir> <so name>
+install_built() { # <path under the build tree> <path under lib/wine>; keeps the original once
+    local dst="$WINE_ROOT/lib/wine/$2" orig="$ROOT/build/wine-orig/$2"
+    mkdir -p "$(dirname "$orig")"
+    [ -f "$orig" ] || cp "$dst" "$orig"
+    cp "$V/wine-build/$1" "$dst" && sign "$dst"
+}
+
+build_dll() { # <dlls/ subdir>
     (cd "$V/wine-build" && PATH="/opt/homebrew/opt/bison/bin:$PATH" x86 make -j"$(sysctl -n hw.ncpu)" "dlls/$1/all" > "$LOGS/wine-make-$1.log" 2>&1)
-    local dst="$WINE_ROOT/lib/wine/x86_64-unix/$2"
-    mkdir -p "$ROOT/build/ntdll-orig/x86_64-unix"
-    [ -f "$ROOT/build/ntdll-orig/x86_64-unix/$2" ] || cp "$dst" "$ROOT/build/ntdll-orig/x86_64-unix/$2"
-    cp "$V/wine-build/dlls/$1/$2" "$dst" && sign "$dst"
 }
 
 step_ntdll() {
-    log "ntdll.so with the single-gsbase (needed by D3DMetal) and fast UDP socket patches"
+    log "ntdll (Unix and PE halves) with the single-gsbase patch D3DMetal needs"
     step_winesrc
-    # Older build trees predate the fast UDP socket patch; apply it once.
-    grep -q sock_fast_path "$V/wine-build/dlls/ntdll/unix/socket.c" ||
-        (cd "$V/wine-build" && patch -p1 < "$ROOT/patches/wine-fast-udp-sockets.patch")
-    build_unix_lib ntdll ntdll.so
+    # A build tree from upstream cs2mac carries the fast UDP socket patch; refuse it.
+    if grep -q sock_fast_path "$V/wine-build/dlls/ntdll/unix/socket.c"; then
+        echo "vendor/wine-build has the fast UDP socket patch; delete vendor/wine-build and rerun" >&2; exit 1
+    fi
+    build_dll ntdll
+    # The patch touches both halves (unix/signal_x86_64.c and loader.c); install both from one tree.
+    install_built dlls/ntdll/ntdll.so x86_64-unix/ntdll.so
+    install_built dlls/ntdll/x86_64-windows/ntdll.dll x86_64-windows/ntdll.dll
 }
 
 step_winemac() {
     log "winemac.so with the GPTK macdrv_functions table"
     step_winesrc
-    build_unix_lib winemac.drv winemac.so
+    build_dll winemac.drv
+    install_built dlls/winemac.drv/winemac.so x86_64-unix/winemac.so
     nm -gU "$WINE_ROOT/lib/wine/x86_64-unix/winemac.so" | grep -q macdrv_functions
 }
 
@@ -137,6 +163,7 @@ step_gamemode() {
 }
 
 step_webhelper() {
+    # Fallback only (CS2MAC_STEAM_WRAPPER=1): ./cs2mac steam passes the same flags to Steam itself.
     log "Steam: steamwebhelper wrapper (CEF with GPU off in one process, fixes black Steam windows)"
     local cef="$STEAM_DIR/bin/cef/cef.win64" w="$ROOT/tools/webhelper"
     [ -f "$cef/steamwebhelper_real.exe" ] || mv "$cef/steamwebhelper.exe" "$cef/steamwebhelper_real.exe"
@@ -149,13 +176,6 @@ step_steamcfg() {
     log "Steam: disable the in-game overlay for CS2 (its orphaned helper crashes under Wine)"
     for f in "$STEAM_DIR"/userdata/*/config/localconfig.vdf; do
         [ -f "$f" ] && python3 "$ROOT/scripts/steam-no-overlay.py" "$f"
-    done
-}
-
-step_tools() {
-    log "screenshot/OCR helpers used by the benchmark (Swift, Vision framework)"
-    for t in winshot winlist fpsread wininput; do
-        [ "$ROOT/scripts/$t" -nt "$ROOT/scripts/$t.swift" ] || swiftc -O -o "$ROOT/scripts/$t" "$ROOT/scripts/$t.swift"
     done
 }
 
@@ -176,12 +196,12 @@ step_prefix() {
 step_steam() {
     log "Steam"
     [ -f "$STEAM_DIR/steam.exe" ] && return
-    fetch "$STEAM_URL" "$DL/SteamSetup.exe"
+    fetch "$STEAM_URL" "$DL/SteamSetup.exe" "$STEAM_SHA256"
     WINEDEBUG=-all "$WINE" "$DL/SteamSetup.exe" /S > "$LOGS/steam-install.log" 2>&1 || true
     "$WINESERVER" -w
     [ -f "$STEAM_DIR/steam.exe" ] || { echo "Steam installer did not produce steam.exe, see $LOGS/steam-install.log"; exit 1; }
 }
 
-steps=("$@"); [ ${#steps[@]} -gt 0 ] || steps=(deps wine dxvk moltenvk ntdll winemac gptk gamemode tools prefix steam webhelper steamcfg)
+steps=("$@"); [ ${#steps[@]} -gt 0 ] || steps=(deps wine dxvk moltenvk ntdll winemac gptk gamemode prefix steam steamcfg)
 for s in "${steps[@]}"; do "step_$s"; done
 log "done. Next: ./cs2mac steam (log in, install Counter-Strike 2), then ./cs2mac play"

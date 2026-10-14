@@ -7,23 +7,30 @@
 int wmain(void)
 {
     static const wchar_t extra[] = L" --disable-gpu --disable-gpu-compositing --single-process";
+    static const wchar_t real[] = L"steamwebhelper_real.exe";
     wchar_t exe[MAX_PATH], *slash, *args = GetCommandLineW(), *cmd;
     STARTUPINFOW si = { sizeof(si) };
     PROCESS_INFORMATION pi;
-    DWORD code = 1;
+    DWORD code = 1, n;
     size_t len;
 
-    GetModuleFileNameW(NULL, exe, MAX_PATH);
+    n = GetModuleFileNameW(NULL, exe, MAX_PATH);
+    if (!n || n >= MAX_PATH) return 1;
     if (!(slash = wcsrchr(exe, L'\\'))) return 1;
-    wcscpy(slash + 1, L"steamwebhelper_real.exe");
+    if ((size_t)(slash + 1 - exe) + wcslen(real) >= MAX_PATH) return 1;
+    wcscpy(slash + 1, real);
 
     /* skip argv[0] */
     if (*args == L'"') { args = wcschr(args + 1, L'"'); args = args ? args + 1 : L""; }
     else while (*args && *args != L' ') args++;
 
     len = wcslen(exe) + wcslen(args) + wcslen(extra) + 4;
-    cmd = HeapAlloc(GetProcessHeap(), 0, len * sizeof(wchar_t));
-    wsprintfW(cmd, L"\"%s\"%s", exe, args);
+    if (!(cmd = HeapAlloc(GetProcessHeap(), 0, len * sizeof(wchar_t)))) return 1;
+    /* wsprintfW truncates at 1024 characters; build the command line without it */
+    cmd[0] = L'"';
+    wcscpy(cmd + 1, exe);
+    wcscat(cmd, L"\"");
+    wcscat(cmd, args);
     /* renderer/gpu/utility children don't need the flags; only the browser process does */
     if (!wcsstr(args, L"--type=")) wcscat(cmd, extra);
 

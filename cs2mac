@@ -2,10 +2,8 @@
 # cs2mac: run Counter-Strike 2 on Apple Silicon through Wine + Metal.
 #
 #   cs2mac setup                      fetch and build everything (scripts/setup.sh)
-#   cs2mac steam [-login user]        start Steam inside the prefix (installs CS2 from there)
-#   cs2mac play  [backend] [WxH]      launch CS2 (default backend: d3dmetal, 1280x720 windowed)
-#   cs2mac bench [backend|all] [secs] [WxH]
-#                                     benchmark on the de_dust2 workshop map, results in build/bench
+#   cs2mac steam                      start Steam inside the prefix (log in, install CS2 from there)
+#   cs2mac play  [backend] [WxH]      launch CS2 (default backend: d3dmetal, borderless at display size)
 #   cs2mac backend [name]             show or switch the D3D11 backend (wined3d | dxvk | d3dmetal)
 #   cs2mac status                     what is installed, running and selected
 #   cs2mac stop                       kill CS2, Steam and the wineserver
@@ -41,17 +39,21 @@ case "$cmd" in
   steam)
     [ -f "$STEAM_DIR/steam.exe" ] || { echo "Steam not installed, run ./cs2mac setup" >&2; exit 1; }
     steam_running && { echo "Steam already running"; exit 0; }
-    # Steam's CEF UI falls back to software rendering under Wine and sometimes stays black on the
-    # first launch; passing -login on the command line skips the login window, and the store/library
-    # pages render once the client is logged in. Extra args are passed through (e.g. -login user).
+    # Steam's CEF UI draws black windows under Wine on macOS unless the GPU is off and it runs in one
+    # process. Steam takes those flags itself; CS2MAC_STEAM_WRAPPER=1 falls back to the upstream
+    # steamwebhelper.exe wrapper, which needs -noverifyfiles so Steam does not restore its helper.
+    # Log in through the Steam window: never put a password on the command line.
     mkdir -p "$ROOT/build/logs"
-    # Steam updates replace steamwebhelper.exe; put the wrapper back (and keep the new real helper)
-    cef="$STEAM_DIR/bin/cef/cef.win64"
-    if ! cmp -s "$ROOT/tools/webhelper/steamwebhelper.exe" "$cef/steamwebhelper.exe"; then
-        [ "$(stat -f%z "$cef/steamwebhelper.exe")" -gt 1000000 ] && mv "$cef/steamwebhelper.exe" "$cef/steamwebhelper_real.exe"
-        bash "$ROOT/scripts/setup.sh" webhelper >/dev/null
+    flags=(-silent -cef-disable-gpu -cef-disable-gpu-compositing -cef-single-process)
+    if [ "${CS2MAC_STEAM_WRAPPER:-0}" = 1 ]; then
+        cef="$STEAM_DIR/bin/cef/cef.win64"
+        if ! cmp -s "$ROOT/tools/webhelper/steamwebhelper.exe" "$cef/steamwebhelper.exe"; then
+            [ "$(stat -f%z "$cef/steamwebhelper.exe")" -gt 1000000 ] && mv "$cef/steamwebhelper.exe" "$cef/steamwebhelper_real.exe"
+            bash "$ROOT/scripts/setup.sh" webhelper >/dev/null
+        fi
+        flags+=(-noverifyfiles)
     fi
-    (cd "$STEAM_DIR" && nohup "$WINE" steam.exe -silent -noverifyfiles "$@" > "$ROOT/build/logs/steam.log" 2>&1 &)
+    (cd "$STEAM_DIR" && nohup "$WINE" steam.exe "${flags[@]}" > "$ROOT/build/logs/steam.log" 2>&1 &)
     echo "Steam starting (log: build/logs/steam.log). Install Counter-Strike 2 from the library." ;;
   play)
     b="${1:-$DEFAULT_BACKEND}"; res="${2:-native}"; shift $(( $# > 2 ? 2 : $# ))
@@ -60,12 +62,6 @@ case "$cmd" in
         CS2MAC_BACKEND="$b" exec "$ROOT/scripts/run-cs2.sh" "$@"
     fi
     CS2MAC_BACKEND="$b" CS2MAC_WIDTH="${res%x*}" CS2MAC_HEIGHT="${res#*x}" exec "$ROOT/scripts/run-cs2.sh" "$@" ;;
-  bench)
-    b="${1:-$DEFAULT_BACKEND}"; secs="${2:-120}"; res="${3:-1280x720}"
-    need_steam
-    [ "$b" = all ] && list=(d3dmetal dxvk vulkan) || list=("$b")
-    for x in "${list[@]}"; do select_backend "$x"; bash "$ROOT/scripts/bench.sh" "$x" "$secs" "$res"; done
-    echo "results: build/bench/*.txt" ;;
   backend)
     [ $# -gt 0 ] && select_backend "$1"
     bash "$ROOT/scripts/backend.sh" status ;;
@@ -76,12 +72,11 @@ case "$cmd" in
     echo "gptk shim: $([ -f "$ROOT/build/d3dmetal/gptk.dll" ] && echo built || echo 'not built')"
     echo "steam:     $([ -f "$STEAM_DIR/steam.exe" ] && echo installed || echo missing), $(steam_running && echo running || echo stopped)"
     echo "cs2:       $([ -f "$CS2_DIR/game/bin/win64/cs2.exe" ] && echo installed || echo 'not installed (install from Steam)')"
-    echo "backend:   $(prefix_backend) in prefix (default for play/bench: $DEFAULT_BACKEND)" ;;
+    echo "backend:   $(prefix_backend) in prefix (default for play: $DEFAULT_BACKEND)" ;;
   stop)
-    pkill -9 -f "^cs2.exe" 2>/dev/null || true
-    pkill -f "steam.exe|gameoverlayui64" 2>/dev/null || true
+    # kills every process in this prefix (CS2, Steam, overlay helpers) and nothing outside it
     "$WINESERVER" -k 2>/dev/null || true
     echo stopped ;;
-  help|-h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//' ;;
+  help|-h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) echo "unknown command '$cmd'; try ./cs2mac help" >&2; exit 2 ;;
 esac
