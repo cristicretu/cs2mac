@@ -220,15 +220,15 @@ step_prefix() {
     "$WINE" reg add 'HKLM\System\CurrentControlSet\Hardware Profiles\Current\Software\Fonts' /v LogPixels /t REG_DWORD /d 96 /f >/dev/null
     # Crashing helpers (the Steam overlay after CS2 exits) must not open Wine Debugger windows.
     "$WINE" reg add 'HKCU\Software\Wine\WineDbg' /v ShowCrashDialog /t REG_DWORD /d 0 /f >/dev/null
-    # 4:3 stretched for ./cs2mac stretch. Wine's emulated display modes fake CS2's mode change and
-    # scale its fullscreen window to the monitor; explorer.exe builds the display list, cs2.exe changes
-    # the mode (win32u reads EmulateModeset from the X11 Driver key for every driver). Not prefix-wide:
-    # it also switches OpenGL to an experimental surface that crashes Steam's GPU probe. The scaling
-    # keeps the aspect ratio; StretchFullscreen (patches/wine-macos-stretch-and-menubar.patch) widens
-    # the pillarboxed client view to the whole window and maps the mouse back.
-    for app in explorer.exe cs2.exe; do
-        "$WINE" reg add "HKCU\\Software\\Wine\\AppDefaults\\$app\\X11 Driver" /v EmulateModeset /t REG_SZ /d y /f >/dev/null
-    done
+    # 4:3 stretched for ./cs2mac stretch. explorer.exe builds the display list with Wine's emulated
+    # modes (EmulateModeset, read from the X11 Driver key by every driver), so a game's mode change is
+    # recorded without touching the monitor and its fullscreen window is scaled over it. Only
+    # explorer.exe: in Steam or CS2 the option also switches OpenGL to an experimental surface that
+    # crashes them. StretchFullscreen (patches/wine-macos-stretch-and-menubar.patch) makes the Mac
+    # driver accept CS2's mode change without applying it, widens the pillarboxed view to the whole
+    # window and maps the mouse back.
+    "$WINE" reg add 'HKCU\Software\Wine\AppDefaults\explorer.exe\X11 Driver' /v EmulateModeset /t REG_SZ /d y /f >/dev/null
+    "$WINE" reg delete 'HKCU\Software\Wine\AppDefaults\cs2.exe\X11 Driver' /f >/dev/null 2>&1 || true
     "$WINE" reg add 'HKCU\Software\Wine\AppDefaults\cs2.exe\Mac Driver' /v StretchFullscreen /t REG_SZ /d y /f >/dev/null
     "$WINE" reg add 'HKCU\Software\Wine\Mac Driver' /v AllowSetGamma /t REG_DWORD /d 0 /f >/dev/null
     "$WINE" reg add 'HKCU\Software\Wine' /v Version /t REG_SZ /d win10 /f >/dev/null

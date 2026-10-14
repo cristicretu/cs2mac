@@ -282,3 +282,18 @@
  
      /* Don't use appkey.  The DPI and monitor sizes should be consistent for all
         processes in the prefix. */
+--- a/dlls/winemac.drv/display.c
++++ b/dlls/winemac.drv/display.c
+@@ -753,6 +753,12 @@
+     CGDisplayModeRef best_display_mode;
+ 
+     TRACE("%p %s %p 0x%08x %p\n", displays, debugstr_w(primary_name), hwnd, flags, lpvoid);
++
++    /* cs2mac: with StretchFullscreen the game's mode change stays virtual. win32u records it against
++     * the emulated mode list (built by explorer.exe with EmulateModeset) and scales the fullscreen
++     * window over the unchanged display; the game itself must not run with EmulateModeset, which
++     * switches its OpenGL surfaces to an experimental path that crashes it. */
++    if (stretch_fullscreen) return DISP_CHANGE_SUCCESSFUL;
+ 
+     init_original_display_mode();
+ 
