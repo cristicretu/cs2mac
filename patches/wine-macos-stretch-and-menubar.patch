@@ -1,0 +1,284 @@
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
+@@ -702,6 +702,26 @@
+ 
+     - (void) updateFullscreenWindows
+     {
++        /* cs2mac: hide the menu bar and Dock while a window covers a screen. Fullscreen windows are
++         * raised to NSStatusWindowLevel + 1, which the macOS 27 menu bar still draws over. The
++         * options only take effect while this app is frontmost. */
++        {
++            BOOL anyFullscreen = FALSE;
++            NSApplicationPresentationOptions options;
++            for (NSWindow* window in [NSApp windows])
++            {
++                if ([window isKindOfClass:[WineWindow class]] && [window isVisible] && [(WineWindow*)window isFullscreen])
++                {
++                    anyFullscreen = TRUE;
++                    break;
++                }
++            }
++            options = anyFullscreen ? NSApplicationPresentationHideDock | NSApplicationPresentationHideMenuBar
++                                    : NSApplicationPresentationDefault;
++            if ([NSApp presentationOptions] != options)
++                [NSApp setPresentationOptions:options];
++        }
++
+         if (capture_displays_for_fullscreen && [NSApp isActive])
+         {
+             BOOL anyFullscreen = FALSE;
+@@ -1427,7 +1447,7 @@
+             {
+                 if (self.clippingCursor)
+                     [clipCursorHandler clipCursorLocation:&point];
+-                point = cgpoint_win_from_mac(point);
++                point = cgpoint_win_from_mac(macdrv_stretch_to_wine(point));
+ 
+                 event = macdrv_create_event(MOUSE_MOVED_ABSOLUTE, targetWindow);
+                 event->mouse_moved.x = floor(point.x);
+@@ -1572,7 +1592,7 @@
+             {
+                 macdrv_event* event;
+ 
+-                pt = cgpoint_win_from_mac(pt);
++                pt = cgpoint_win_from_mac(macdrv_stretch_to_wine(pt));
+ 
+                 event = macdrv_create_event(MOUSE_BUTTON, window);
+                 event->mouse_button.button = [theEvent buttonNumber];
+@@ -1655,7 +1675,7 @@
+                 double x, y;
+                 BOOL continuous = FALSE;
+ 
+-                pt = cgpoint_win_from_mac(pt);
++                pt = cgpoint_win_from_mac(macdrv_stretch_to_wine(pt));
+ 
+                 event = macdrv_create_event(MOUSE_SCROLL, window);
+                 event->mouse_scroll.x = floor(pt.x);
+@@ -2540,7 +2560,7 @@
+     OnMainThread(^{
+         NSPoint location = [NSEvent mouseLocation];
+         location = [[WineApplicationController sharedController] flippedMouseLocation:location];
+-        *pos = cgpoint_win_from_mac(NSPointToCGPoint(location));
++        *pos = cgpoint_win_from_mac(macdrv_stretch_to_wine(NSPointToCGPoint(location)));
+     });
+ 
+     return TRUE;
+@@ -2557,7 +2577,7 @@
+     __block int ret;
+ 
+     OnMainThread(^{
+-        ret = [[WineApplicationController sharedController] setCursorPosition:cgpoint_mac_from_win(pos)];
++        ret = [[WineApplicationController sharedController] setCursorPosition:macdrv_stretch_from_wine(cgpoint_mac_from_win(pos))];
+     });
+ 
+     return ret;
+@@ -2580,7 +2600,7 @@
+         CGRect rect = r;
+ 
+         if (!CGRectIsInfinite(rect))
+-            rect = cgrect_mac_from_win(rect);
++            rect = macdrv_stretch_rect_from_wine(cgrect_mac_from_win(rect));
+ 
+         if (!CGRectIsInfinite(rect))
+         {
+--- a/dlls/winemac.drv/cocoa_window.m
++++ b/dlls/winemac.drv/cocoa_window.m
+@@ -252,9 +252,14 @@
+ 
+     WineMetalView *_metalView;
+     NSMutableDictionary<NSNumber*, CALayerHost*>* _caLayerHosts;
++
++    NSRect wineFrame;
++    BOOL hasWineFrame;
+ }
+ 
+ @property (readonly, nonatomic) BOOL everHadGLContext;
++@property (nonatomic) NSRect wineFrame;      /* frame Wine asked for; differs from -frame while stretched */
++@property (nonatomic) BOOL hasWineFrame;
+ 
+     - (void) addGLContext:(WineOpenGLContext*)context;
+     - (void) removeGLContext:(WineOpenGLContext*)context;
+@@ -268,7 +273,40 @@
+     - (void) removeCALayerHostView:(CAContextID)contextId;
+ 
+ @end
++
++
++/* cs2mac: the window whose client view is stretched, and the two rects (top-down screen coordinates)
++ * mouse input is mapped between. Main thread only. */
++static WineWindow* stretch_window;
++static CGRect stretch_full, stretch_src;
++
++static CGPoint map_point(CGPoint p, CGRect from, CGRect to)
++{
++    p.x = to.origin.x + (p.x - from.origin.x) * to.size.width / from.size.width;
++    p.y = to.origin.y + (p.y - from.origin.y) * to.size.height / from.size.height;
++    return p;
++}
++
++CGPoint macdrv_stretch_to_wine(CGPoint point)
++{
++    if (!stretch_window || !CGRectContainsPoint(stretch_full, point)) return point;
++    return map_point(point, stretch_full, stretch_src);
++}
++
++CGPoint macdrv_stretch_from_wine(CGPoint point)
++{
++    if (!stretch_window || !CGRectContainsPoint(CGRectInset(stretch_src, -1, -1), point)) return point;
++    return map_point(point, stretch_src, stretch_full);
++}
+ 
++CGRect macdrv_stretch_rect_from_wine(CGRect rect)
++{
++    CGPoint a, b;
++    if (!stretch_window || CGRectIsInfinite(rect) || !CGRectContainsRect(CGRectInset(stretch_src, -1, -1), rect)) return rect;
++    a = map_point(rect.origin, stretch_src, stretch_full);
++    b = map_point(CGPointMake(CGRectGetMaxX(rect), CGRectGetMaxY(rect)), stretch_src, stretch_full);
++    return CGRectMake(a.x, a.y, b.x - a.x, b.y - a.y);
++}
+ 
+ @interface WineWindow ()
+ 
+@@ -356,6 +394,8 @@
+ 
+ @implementation WineContentView
+ 
++@synthesize wineFrame, hasWineFrame;
++
+ @synthesize everHadGLContext = _everHadGLContext;
+ 
+     - (instancetype) initWithFrame:(NSRect)frame
+@@ -1801,6 +1841,50 @@
+                                          event_mask_for_type(WINDOW_MINIMIZE_REQUESTED) |
+                                          event_mask_for_type(WINDOW_RESTORE_REQUESTED)
+                                forWindow:self];
++    }
++
++    /* cs2mac: Wine's emulated display modes scale a fullscreen game uniformly, so a 4:3 mode on a
++     * 16:9 screen leaves its client view pillarboxed inside the full-screen window. With
++     * StretchFullscreen, give that view the whole window; mouse input is mapped back through
++     * macdrv_stretch_to_wine so the game still sees its own coordinates. */
++    - (void) updateStretch
++    {
++        NSView* content = [self contentView];
++        BOOL stretch = stretch_fullscreen && fullscreen && [self isVisible];
++        BOOL mapped = FALSE;
++
++        for (NSView* sub in [content subviews])
++        {
++            WineContentView* view;
++            NSRect target;
++
++            if (![sub isKindOfClass:[WineContentView class]]) continue;
++            view = (WineContentView*)sub;
++            if (!view.hasWineFrame) continue;
++
++            target = stretch ? [content bounds] : view.wineFrame;
++            if (stretch && !mapped && !NSIsEmptyRect(view.wineFrame) && !NSEqualRects(view.wineFrame, [content bounds]))
++            {
++                WineApplicationController* controller = [WineApplicationController sharedController];
++                NSRect src = [self convertRectToScreen:[content convertRect:view.wineFrame toView:nil]];
++                NSRect full = [self convertRectToScreen:[content convertRect:[content bounds] toView:nil]];
++                [controller flipRect:&src];
++                [controller flipRect:&full];
++                stretch_src = NSRectToCGRect(src);
++                stretch_full = NSRectToCGRect(full);
++                mapped = TRUE;
++            }
++            if (!NSEqualRects([view frame], target))
++            {
++                [view setFrame:target];
++                [view wine_setBackingSize:(int[2]){ 0 }];
++            }
++        }
++
++        if (mapped)
++            stretch_window = self;
++        else if (stretch_window == self)
++            stretch_window = nil;
+     }
+ 
+     - (void) updateFullscreen
+@@ -1818,6 +1902,7 @@
+ 
+             [controller adjustWindowLevels];
+         }
++        [self updateStretch];
+     }
+ 
+     - (void) setFrameAndWineFrame:(NSRect)frame
+@@ -3569,6 +3654,16 @@
+     OnMainThreadAsync(^{
+         NSRect newFrame = NSRectFromCGRect(cgrect_mac_from_win(rect));
+         NSRect oldFrame = [view frame];
++
++        view.wineFrame = newFrame;
++        view.hasWineFrame = YES;
++        if (stretch_fullscreen && [[view window] isKindOfClass:[WineWindow class]])
++        {
++            [(WineWindow*)[view window] updateStretch];
++            if (((WineWindow*)[view window]).fullscreen && [[view window] isVisible] &&
++                [view superview] == [[view window] contentView])
++                return;
++        }
+ 
+         if (!NSEqualRects(oldFrame, newFrame))
+         {
+@@ -3634,6 +3729,11 @@
+             [oldWindow updateForGLSubviews];
+             [newWindow updateForGLSubviews];
+         }
++        if (stretch_fullscreen)
++        {
++            [oldWindow updateStretch];
++            [newWindow updateStretch];
++        }
+     });
+ }
+ }
+--- a/dlls/winemac.drv/cocoa_window.h
++++ b/dlls/winemac.drv/cocoa_window.h
+@@ -109,4 +109,6 @@
+ 
+     - (void) setRetinaMode:(BOOL)mode;
+ 
++    - (void) updateStretch;
++
+ @end
+--- a/dlls/winemac.drv/macdrv_cocoa.h
++++ b/dlls/winemac.drv/macdrv_cocoa.h
+@@ -129,7 +129,14 @@
+ extern bool retina_enabled;  /* Whether Retina mode is enabled via registry setting. */
+ extern bool retina_on;       /* Whether Retina mode is currently active (enabled and display is in default mode). */
+ extern bool enable_app_nap;
++extern bool stretch_fullscreen;  /* cs2mac: stretch a pillarboxed fullscreen client view over the window */
+ 
++/* cs2mac: map between the screen (what the user sees, stretched) and the client area Wine laid out.
++ * Points and rects are in top-down screen coordinates; main thread only. */
++extern CGPoint macdrv_stretch_to_wine(CGPoint point);
++extern CGPoint macdrv_stretch_from_wine(CGPoint point);
++extern CGRect macdrv_stretch_rect_from_wine(CGRect rect);
++
+ static inline CGRect cgrect_mac_from_win(CGRect rect)
+ {
+     if (retina_on)
+--- a/dlls/winemac.drv/macdrv_main.c
++++ b/dlls/winemac.drv/macdrv_main.c
+@@ -57,6 +57,7 @@
+ int gl_surface_mode = GL_SURFACE_IN_FRONT_OPAQUE;
+ bool retina_enabled = false;
+ bool enable_app_nap = false;
++bool stretch_fullscreen = false;
+ 
+ pthread_key_t macdrv_thread_data_key = 0;
+ UINT64 app_icon_callback = 0;
+@@ -371,6 +372,9 @@
+ 
+     if (!get_config_key(hkey, appkey, "EnableAppNap", buffer, sizeof(buffer)))
+         enable_app_nap = IS_OPTION_TRUE(buffer[0]);
++
++    if (!get_config_key(hkey, appkey, "StretchFullscreen", buffer, sizeof(buffer)))
++        stretch_fullscreen = IS_OPTION_TRUE(buffer[0]);
+ 
+     /* Don't use appkey.  The DPI and monitor sizes should be consistent for all
+        processes in the prefix. */

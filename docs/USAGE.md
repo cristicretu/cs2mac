@@ -56,8 +56,9 @@ directly and always adds `-insecure`, for offline testing only.
 ## 3. Play
 
 `stretch` makes the external monitor the main display while CS2 runs (`CS2MAC_DISPLAY=builtin` for
-the laptop screen). CS2 runs fullscreen at the given size and Wine's emulated display modes scale it
-over the whole monitor, so the monitor stays at its native mode. (On Apple Silicon macOS scales
+the laptop screen). CS2 runs fullscreen at the given size; Wine's emulated display modes fake the mode change and the
+patched Mac driver stretches the picture over the whole monitor (mouse mapped back), so the monitor
+stays at its native mode. (On Apple Silicon macOS scales
 lower modes on external monitors itself and keeps the aspect ratio, so a real mode switch only adds
 black bars.) Vsync is off
 by default (`CS2MAC_VSYNC=1` turns it on): below the refresh rate it makes fps flip between full and
