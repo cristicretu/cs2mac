@@ -79,8 +79,10 @@ case "$cmd" in
     pkill -f "$bin" 2>/dev/null || true
     mkdir -p "$ROOT/build/logs"; log="$ROOT/build/logs/display.log"
     nohup "$bin" "$res" > "$log" 2>&1 &
-    for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$log" ] && break; sleep 0.5; done
-    cat "$log"; grep -q '^display' "$log" || exit 1
+    helper=$!
+    # a monitor can take several seconds to resync to the new mode before the helper reports back
+    for _ in $(seq 60); do [ -s "$log" ] && break; sleep 0.5; done
+    cat "$log"; grep -q '^display' "$log" || { kill "$helper" 2>/dev/null; echo "display switch failed" >&2; exit 1; }
     sleep 2 # let Wine see the new display layout
     CS2MAC_BACKEND=d3dmetal CS2MAC_WIDTH="${res%x*}" CS2MAC_HEIGHT="${res#*x}" exec "$ROOT/scripts/run-cs2.sh" "$@" ;;
   backend)
