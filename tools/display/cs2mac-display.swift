@@ -46,20 +46,25 @@ fflush(stdout)
 signal(SIGINT) { _ in exit(0) }
 signal(SIGTERM) { _ in exit(0) }
 
-func cs2Running() -> Bool {
-    let p = Process()
+// Find CS2's process once (pgrep), then watch that pid with kill(pid, 0). Polling pgrep instead
+// ended this helper on one failed run and put the main display back in the middle of a game.
+func cs2Pid() -> pid_t? {
+    let p = Process(), out = Pipe()
     p.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
     p.arguments = ["-f", "cs2\\.exe"]
-    p.standardOutput = FileHandle.nullDevice
-    try? p.run()
+    p.standardOutput = out
+    guard (try? p.run()) != nil else { return nil }
     p.waitUntilExit()
-    return p.terminationStatus == 0
+    let text = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    return text.split(separator: "\n").compactMap { pid_t($0) }.first
 }
 
 // wait up to two minutes for CS2 to start, then until it exits
 var waited = 0
-while !cs2Running() {
+var pid: pid_t? = nil
+while pid == nil {
     if waited >= 120 { fail("CS2 did not start; display restored") }
     sleep(1); waited += 1
+    pid = cs2Pid()
 }
-while cs2Running() { sleep(2) }
+while kill(pid!, 0) == 0 || errno == EPERM { sleep(2) }
