@@ -28,7 +28,7 @@ mode=(-windowed -noborder)
 fps=(+mat_vsync 0 +fps_max 0)
 [ "${CS2MAC_VSYNC:-0}" = 1 ] && fps=(+mat_vsync 1 +fps_max 0)
 [ -n "${CS2MAC_FPS_MAX:-}" ] && fps=(+mat_vsync 0 +fps_max "$CS2MAC_FPS_MAX")
-args=("${api[@]}" -nojoy -novid -condebug "${res[@]}" "${mode[@]}" "${fps[@]}" "$@")
+args=("${api[@]}" -nojoy -novid -condebug +exec autoexec "${res[@]}" "${mode[@]}" "${fps[@]}" "$@")
 # By default hand the launch to the running Steam client (VAC secure servers). CS2MAC_DIRECT=1 starts
 # cs2.exe itself, always with -insecure so a test run can never join a VAC server.
 [ "${CS2MAC_DIRECT:-0}" = 1 ] && exec "$WINE" cs2.exe -steam -insecure "${args[@]}"
