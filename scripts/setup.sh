@@ -183,8 +183,8 @@ step_webhelper() {
 }
 
 step_display() {
-    # Used by ./cs2mac stretch: switches the monitor to a 4:3 mode while CS2 runs.
-    log "cs2mac-display (monitor mode switch for ./cs2mac stretch)"
+    # Used by ./cs2mac stretch: makes the monitor the main display while CS2 runs.
+    log "cs2mac-display (main display switch for ./cs2mac stretch)"
     mkdir -p "$ROOT/build"
     swiftc -O -o "$ROOT/build/cs2mac-display" "$ROOT/tools/display/cs2mac-display.swift"
 }
@@ -207,9 +207,14 @@ step_prefix() {
     "$WINE" reg add 'HKLM\System\CurrentControlSet\Hardware Profiles\Current\Software\Fonts' /v LogPixels /t REG_DWORD /d 96 /f >/dev/null
     # Crashing helpers (the Steam overlay after CS2 exits) must not open Wine Debugger windows.
     "$WINE" reg add 'HKCU\Software\Wine\WineDbg' /v ShowCrashDialog /t REG_DWORD /d 0 /f >/dev/null
-    # CS2 only: capture the displays while its window covers the screen. Wine's fullscreen window level
-    # sits under the macOS 27 menu bar; a captured display has no menu bar, Dock or other windows.
-    "$WINE" reg add 'HKCU\Software\Wine\AppDefaults\cs2.exe\Mac Driver' /v CaptureDisplaysForFullscreen /t REG_SZ /d y /f >/dev/null
+    # Emulated display modes: a game's mode change is faked and its fullscreen window is scaled over the
+    # whole monitor, aspect ratio ignored; ./cs2mac stretch relies on it for 4:3 stretched (the monitor
+    # never changes mode). explorer.exe builds the display list, cs2.exe changes the mode. Not
+    # prefix-wide: it also switches OpenGL to an experimental surface that crashes Steam's GPU probe.
+    # win32u reads it from the X11 Driver key for every driver.
+    for app in explorer.exe cs2.exe; do
+        "$WINE" reg add "HKCU\\Software\\Wine\\AppDefaults\\$app\\X11 Driver" /v EmulateModeset /t REG_SZ /d y /f >/dev/null
+    done
     "$WINE" reg add 'HKCU\Software\Wine\Mac Driver' /v AllowSetGamma /t REG_DWORD /d 0 /f >/dev/null
     "$WINE" reg add 'HKCU\Software\Wine' /v Version /t REG_SZ /d win10 /f >/dev/null
     "$WINESERVER" -w

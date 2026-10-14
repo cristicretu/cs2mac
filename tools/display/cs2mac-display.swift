@@ -1,23 +1,17 @@
-// cs2mac-display WxH: switch a display to the WxH mode and make it the main display (where Wine puts
-// the game) for as long as CS2 runs. The change is made for this process only
-// (CGConfigureOption.forAppOnly), so macOS restores the old mode and arrangement when this exits,
-// crash or not.
+// cs2mac-display: make a display the main one (where Wine puts the game) for as long as CS2 runs.
+// The change is made for this process only (CGConfigureOption.forAppOnly), so macOS restores the old
+// arrangement when this exits, crash or not.
 //
 // CS2MAC_DISPLAY picks the display: "external" (default; the first non built-in, else the built-in)
-// or "builtin". Only 1x modes (pixels == points) are used, so the game renders at exactly WxH and the
-// monitor scales it to the panel: 4:3 stretched on a 16:9 monitor set to full-screen aspect.
+// or "builtin". The display mode is left alone: on Apple Silicon macOS drives external monitors at
+// their native timing and scales lower modes itself, keeping the aspect ratio, so a 4:3 mode would
+// only add black bars. 4:3 stretched comes from Wine's emulated display modes instead (see cs2mac).
 import CoreGraphics
 import Foundation
 
 func fail(_ msg: String) -> Never {
     FileHandle.standardError.write("cs2mac-display: \(msg)\n".data(using: .utf8)!)
     exit(1)
-}
-
-let args = CommandLine.arguments
-guard args.count == 2, let x = args[1].firstIndex(of: "x"),
-      let w = Int(args[1][..<x]), let h = Int(args[1][args[1].index(after: x)...]) else {
-    fail("usage: cs2mac-display WxH")
 }
 
 var count: UInt32 = 0
@@ -33,19 +27,9 @@ case "builtin": guard let b = builtin else { fail("no built-in display") }; targ
 case let other: fail("CS2MAC_DISPLAY=\(other): use external or builtin")
 }
 
-let opts = [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary
-let modes = (CGDisplayCopyAllDisplayModes(target, opts) as? [CGDisplayMode] ?? [])
-    .filter { $0.width == w && $0.height == h && $0.pixelWidth == w && $0.pixelHeight == h && $0.isUsableForDesktopGUI() }
-guard let mode = modes.max(by: { $0.refreshRate < $1.refreshRate }) else {
-    let sizes = Set((CGDisplayCopyAllDisplayModes(target, opts) as? [CGDisplayMode] ?? [])
-        .filter { $0.pixelWidth == $0.width && $0.isUsableForDesktopGUI() }.map { "\($0.width)x\($0.height)" })
-    fail("display \(target) has no \(w)x\(h) mode; it has: \(sizes.sorted().joined(separator: " "))")
-}
-
-var config: CGDisplayConfigRef?
-guard CGBeginDisplayConfiguration(&config) == .success else { fail("cannot configure displays") }
-CGConfigureDisplayWithDisplayMode(config, target, mode, nil)
 if CGDisplayIsMain(target) == 0 {
+    var config: CGDisplayConfigRef?
+    guard CGBeginDisplayConfiguration(&config) == .success else { fail("cannot configure displays") }
     // the display at (0,0) is the main one; line the others up to its left
     CGConfigureDisplayOrigin(config, target, 0, 0)
     var left: Int32 = 0
@@ -53,9 +37,10 @@ if CGDisplayIsMain(target) == 0 {
         left -= Int32(CGDisplayPixelsWide(d))
         CGConfigureDisplayOrigin(config, d, left, 0)
     }
+    guard CGCompleteDisplayConfiguration(config, .forAppOnly) == .success else { fail("display change refused") }
 }
-guard CGCompleteDisplayConfiguration(config, .forAppOnly) == .success else { fail("display change refused") }
-print("display \(target) at \(w)x\(h) \(Int(mode.refreshRate)) Hz until CS2 exits")
+let b = CGDisplayBounds(target)
+print("display \(target) (\(Int(b.width))x\(Int(b.height))) is the main display until CS2 exits")
 fflush(stdout)
 
 signal(SIGINT) { _ in exit(0) }
