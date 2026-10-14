@@ -25,6 +25,10 @@ export GPTK_ROOT="${GPTK_ROOT:-$CS2MAC_HOME/gptk-4.0b3}"
 export GPTK_LIB="$GPTK_ROOT/lib"
 
 export WINEDEBUG="${WINEDEBUG:--all}"
+# CS2 is an SDL app; in exclusive fullscreen (./cs2mac stretch) SDL minimizes it when it loses focus,
+# and Wine never gives focus back to a minimized window, so after cmd-tab the game got no keyboard
+# or sound. CS2 inherits this from Steam, so it has to be set before ./cs2mac steam.
+export SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS="${SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS:-0}"
 export WINEESYNC="${WINEESYNC:-1}"
 export WINEMSYNC="${WINEMSYNC:-1}"
 
