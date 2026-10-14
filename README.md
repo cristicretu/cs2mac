@@ -16,6 +16,14 @@
 > - `./cs2mac stop` only kills processes in this Wine prefix (`wineserver -k`)
 > - Steam's `localconfig.vdf` is backed up before the overlay is disabled
 > - benchmark, OCR, synthetic-input and workshop tooling removed
+> - D3DMetal comes from Apple's own Game Porting Toolkit download (tested: 4.0 beta 3, dmg SHA-256
+>   `56a7d0bd3d5375267d2d58e7f947c53fbf2fa636a824d2cd68ac2bf8c0c11e65`), not the Homebrew cask
+>   (a third-party repack that strips quarantine and re-signs). Copy `redist/lib` from its
+>   "Evaluation environment for Windows games" image to
+>   `~/Library/Application Support/cs2mac/gptk-4.0b3/lib`; the shim build refuses anything not
+>   signed by Apple. GPTK 4 resolves `__wine_unix_call_dispatcher` itself, so `gptk.dll` is now a
+>   pass-through. Verified on macOS 27.0.1 / M4 Max: `d3d11probe.exe` gets a feature level 11_0
+>   device on "AMD Compatibility Mode" (D3DMetal's adapter)
 
 Run Counter-Strike 2 (the Windows build) on Apple Silicon Macs through a small, custom
 translation shim: Wine 11 for the Win32 layer, Metal for the GPU, and a launcher that picks and

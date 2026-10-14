@@ -145,8 +145,8 @@ step_winemac() {
 step_gptk() {
     log "Apple Game Porting Toolkit (D3DMetal) and the gptk.dll shim"
     if [ ! -d "$GPTK_LIB" ]; then
-        echo "GPTK not installed. Run: brew install --cask gcenx/wine/game-porting-toolkit"
-        echo "(needs Apple's 'Game Porting Toolkit' download from developer.apple.com in ~/Downloads)"
+        echo "GPTK not found at $GPTK_ROOT. Download Game Porting Toolkit from developer.apple.com/games,"
+        echo "open 'Evaluation environment for Windows games' inside it and copy its redist/lib to $GPTK_LIB"
         echo "The vulkan and dxvk backends work without it; skipping."
         return
     fi
@@ -190,7 +190,9 @@ step_steamcfg() {
 
 step_prefix() {
     log "Wine prefix at $WINEPREFIX"
-    [ -f "$WINEPREFIX/system.reg" ] || WINEDEBUG=-all "$WINE" wineboot -u > "$LOGS/wineboot.log" 2>&1
+    # mscoree/mshtml off: no Mono/Gecko installer prompts (Steam's UI is CEF, it needs neither)
+    [ -f "$WINEPREFIX/system.reg" ] ||
+        WINEDEBUG=-all WINEDLLOVERRIDES="mscoree=;mshtml=" "$WINE" wineboot -u > "$LOGS/wineboot.log" 2>&1
     # Retina off: with it on, CS2's mouse coordinates don't match its window and menus can't be clicked.
     "$WINE" reg add 'HKCU\Software\Wine\Mac Driver' /v RetinaMode /t REG_SZ /d n /f >/dev/null
     "$WINE" reg add 'HKCU\Control Panel\Desktop' /v LogPixels /t REG_DWORD /d 96 /f >/dev/null

@@ -3,11 +3,16 @@
 # Game Porting Toolkit app, never redistributed here) so Wine 11 can load them.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-GPTK="/Applications/Game Porting Toolkit.app/Contents/Resources/wine"
+source "$ROOT/scripts/env.sh"
+GPTK="$GPTK_ROOT"
 OUT="$ROOT/build/d3dmetal"
 CC="${MINGW_CC:-x86_64-w64-mingw32-gcc}"
 
-[ -d "$GPTK" ] || { echo "Game Porting Toolkit not found at $GPTK (brew install --cask gcenx/wine/game-porting-toolkit)"; exit 1; }
+[ -d "$GPTK/lib" ] || { echo "Game Porting Toolkit not found at $GPTK (copy redist/lib there, see README)"; exit 1; }
+# only ever load Apple's own build of D3DMetal
+codesign --verify --strict -R='anchor apple' "$GPTK/lib/external/libd3dshared.dylib" &&
+    codesign --verify --deep --strict -R='anchor apple' "$GPTK/lib/external/D3DMetal.framework" ||
+    { echo "D3DMetal in $GPTK is not signed by Apple" >&2; exit 1; }
 command -v "$CC" >/dev/null || { echo "missing $CC (brew install mingw-w64)"; exit 1; }
 
 mkdir -p "$OUT/x86_64-windows" "$OUT/x86_64-unix"

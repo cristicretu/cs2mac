@@ -18,8 +18,11 @@ fi
 export WINESERVER="${WINESERVER:-$WINE_ROOT/bin/wineserver}"
 
 # Apple Game Porting Toolkit (only needed for the d3dmetal backend)
-GPTK_APP="/Applications/Game Porting Toolkit.app/Contents/Resources/wine"
-export GPTK_LIB="$GPTK_APP/lib"
+# Apple's redist/lib, copied out of "Evaluation environment for Windows games" in the Game Porting
+# Toolkit download from developer.apple.com (Apple-signed; see README). Not the Homebrew cask, which
+# installs a third-party repack and re-signs it.
+export GPTK_ROOT="${GPTK_ROOT:-$CS2MAC_HOME/gptk-4.0b3}"
+export GPTK_LIB="$GPTK_ROOT/lib"
 
 export WINEDEBUG="${WINEDEBUG:--all}"
 export WINEESYNC="${WINEESYNC:-1}"
