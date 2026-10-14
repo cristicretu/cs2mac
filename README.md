@@ -18,6 +18,11 @@
 > - no passwords on the command line; direct `cs2.exe` launches always add `-insecure`
 > - `./cs2mac stop` only kills processes in this Wine prefix (`wineserver -k`)
 > - Steam's `localconfig.vdf` is backed up before the overlay is disabled
+> - `./cs2mac stretch`: 4:3 stretched exclusive fullscreen. A winemac patch keeps the mode change
+>   virtual, widens the pillarboxed view to the whole screen, maps the cursor per axis and hides the
+>   menu bar and Dock; a small Swift helper makes the external monitor the main display while CS2 runs
+> - `SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS=0`, so ⌘-Tab out of fullscreen CS2 no longer loses input and sound
+> - vsync off and fps uncapped by default (upstream forced vsync, which oscillated the frame rate)
 > - benchmark, OCR, synthetic-input and workshop tooling removed
 > - D3DMetal comes from Apple's own Game Porting Toolkit download (tested: 4.0 beta 3, dmg SHA-256
 >   `56a7d0bd3d5375267d2d58e7f947c53fbf2fa636a824d2cd68ac2bf8c0c11e65`), not the Homebrew cask
@@ -63,17 +68,31 @@ D3DMetal otherwise gets. `docs/ARCHITECTURE.md` walks through it.
 - Xcode command line tools (`xcode-select --install`), Rosetta 2 (`softwareupdate --install-rosetta --agree-to-license`)
 - Homebrew
 - A Steam account that owns CS2 (it is free to play)
-- For the `d3dmetal` backend: `brew install --cask gcenx/wine/game-porting-toolkit` (needs Apple's
-  Game Porting Toolkit download from developer.apple.com, free Apple ID)
+- For the `d3dmetal` backend: Apple's Game Porting Toolkit from
+  [developer.apple.com/download](https://developer.apple.com/download/all/?q=game%20porting%20toolkit)
+  (free Apple ID). Mount the "Evaluation environment for Windows games" dmg and copy its
+  `redist/lib` to `~/Library/Application Support/cs2mac/gptk-4.0b3/lib`
 
 ## Quick start
 
 ```sh
-cd ~/fun/cs2mac       # this hardened fork, branch `hardened`; do not clone upstream
+git clone https://github.com/cristicretu/cs2mac && cd cs2mac
 ./cs2mac setup        # downloads Wine, MoltenVK, DXVK, Steam; builds the patched bits; creates the prefix
 ./cs2mac steam        # opens Steam; log in, install Counter-Strike 2
 ./cs2mac play         # launches CS2 on the d3dmetal backend, borderless at display size
 ```
+
+For 4:3 stretched fullscreen (CS2 at 1280x960 or 1600x1200 stretched over a 16:9 monitor, menu bar
+and Dock hidden, external monitor used if one is connected):
+
+```sh
+./cs2mac stretch            # 1280x960
+./cs2mac stretch 1600x1200
+```
+
+Vsync is off and fps uncapped by default (`CS2MAC_VSYNC=1` or `CS2MAC_FPS_MAX=n` to change). The
+first matches stutter while D3DMetal compiles shaders; play a bot match first. Wine is not banned by
+VAC, but nothing guarantees this setup; your account, your risk.
 
 `./cs2mac play dxvk 1920x1080` picks another backend and resolution. `docs/USAGE.md` has every
 subcommand, `docs/TUNING.md` the knobs and what they did.
@@ -81,12 +100,13 @@ subcommand, `docs/TUNING.md` the knobs and what they did.
 ## Layout
 
 ```
-cs2mac              launcher (setup | steam | play | backend | status | stop)
+cs2mac              launcher (setup | steam | play | stretch | backend | status | stop)
 scripts/            setup.sh, backend.sh (switch D3D11 implementation), run-cs2.sh,
                     env.sh (paths and tunables), steam-no-overlay.py
 shim/               gptk.c + gptk.def (the trampoline DLL), patch_imports.py, d3d11probe.c
 patches/            wine-macos-single-gsbase.patch, wine-macos-gptk-d3dmetal.patch,
-                    moltenvk-null-descriptor-sets.patch
+                    wine-macos-stretch-and-menubar.patch, moltenvk-null-descriptor-sets.patch
+tools/              display/ (main-display helper for stretch), webhelper/ (steamwebhelper wrapper)
 docs/               ARCHITECTURE.md, USAGE.md, TUNING.md, RESULTS.md
 vendor/ downloads/ build/   created by setup, gitignored
 ```
