@@ -4,6 +4,7 @@
 #   cs2mac setup                      fetch and build everything (scripts/setup.sh)
 #   cs2mac steam                      start Steam inside the prefix (log in, install CS2 from there)
 #   cs2mac play  [backend] [WxH]      launch CS2 (default backend: d3dmetal, borderless at display size)
+#   cs2mac stretch [WxH]              d3dmetal with the monitor switched to WxH (default 1280x960, 4:3)
 #   cs2mac backend [name]             show or switch the D3D11 backend (wined3d | dxvk | d3dmetal)
 #   cs2mac status                     what is installed, running and selected
 #   cs2mac stop                       kill CS2, Steam and the wineserver
@@ -67,6 +68,21 @@ case "$cmd" in
         CS2MAC_BACKEND="$b" exec "$ROOT/scripts/run-cs2.sh" "$@"
     fi
     CS2MAC_BACKEND="$b" CS2MAC_WIDTH="${res%x*}" CS2MAC_HEIGHT="${res#*x}" exec "$ROOT/scripts/run-cs2.sh" "$@" ;;
+  stretch)
+    # 4:3 stretched: switch the monitor (CS2MAC_DISPLAY=external|builtin) to a real WxH mode and make
+    # it the main display while CS2 runs, then launch borderless at that size. macOS restores the
+    # display when the helper exits, which it does when cs2.exe does.
+    res="${1:-1280x960}"; shift $(( $# > 0 ? 1 : 0 ))
+    need_steam; select_backend d3dmetal
+    bin="$ROOT/build/cs2mac-display"
+    [ "$bin" -nt "$ROOT/tools/display/cs2mac-display.swift" ] || bash "$ROOT/scripts/setup.sh" display >/dev/null
+    pkill -f "$bin" 2>/dev/null || true
+    mkdir -p "$ROOT/build/logs"; log="$ROOT/build/logs/display.log"
+    nohup "$bin" "$res" > "$log" 2>&1 &
+    for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$log" ] && break; sleep 0.5; done
+    cat "$log"; grep -q '^display' "$log" || exit 1
+    sleep 2 # let Wine see the new display layout
+    CS2MAC_BACKEND=d3dmetal CS2MAC_WIDTH="${res%x*}" CS2MAC_HEIGHT="${res#*x}" exec "$ROOT/scripts/run-cs2.sh" "$@" ;;
   backend)
     [ $# -gt 0 ] && select_backend "$1"
     bash "$ROOT/scripts/backend.sh" status ;;
@@ -82,6 +98,6 @@ case "$cmd" in
     # kills every process in this prefix (CS2, Steam, overlay helpers) and nothing outside it
     "$WINESERVER" -k 2>/dev/null || true
     echo stopped ;;
-  help|-h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//' ;;
+  help|-h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) echo "unknown command '$cmd'; try ./cs2mac help" >&2; exit 2 ;;
 esac

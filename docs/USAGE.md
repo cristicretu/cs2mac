@@ -55,11 +55,19 @@ directly and always adds `-insecure`, for offline testing only.
 
 ## 3. Play
 
+`stretch` uses the external monitor (`CS2MAC_DISPLAY=builtin` for the laptop screen), makes it the
+main display and restores mode and arrangement when CS2 exits. The stretching itself is done by the
+monitor: set its aspect ratio option to full screen, or it shows 4:3 with black bars. Vsync is off
+by default (`CS2MAC_VSYNC=1` turns it on): below the refresh rate it makes fps flip between full and
+half rate.
+
 ```sh
 ./cs2mac play                      # d3dmetal, borderless at the main display size
 ./cs2mac play dxvk 1920x1080       # borderless window of that size
 ./cs2mac play vulkan 1280x720 +map de_dust2
 CS2MAC_WINDOWED=1 ./cs2mac play d3dmetal 1280x720   # normal window with a title bar
+./cs2mac stretch                   # 4:3 stretched: monitor switched to 1280x960 while CS2 runs
+./cs2mac stretch 1600x1200         # another real mode of the monitor (the error lists them)
 ```
 
 The first argument is the backend (`d3dmetal`, `dxvk`, `vulkan`, `wined3d`), the second the

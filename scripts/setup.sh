@@ -2,7 +2,7 @@
 # One-shot setup for cs2mac. Idempotent: every step checks for its output first.
 #
 #   setup.sh            run every step
-#   setup.sh <step>...  run only the named steps (deps wine dxvk moltenvk ntdll winemac gptk gamemode prefix steam steamcfg, plus webhelper)
+#   setup.sh <step>...  run only the named steps (deps wine dxvk moltenvk ntdll winemac gptk gamemode prefix steam steamcfg, plus webhelper display)
 #
 # Nothing proprietary is redistributed: Wine, DXVK and MoltenVK are fetched from
 # their upstream releases, Steam from Valve, and D3DMetal comes from Apple's
@@ -182,6 +182,13 @@ step_webhelper() {
     cmp -s "$w/steamwebhelper.exe" "$cef/steamwebhelper.exe" || cp "$w/steamwebhelper.exe" "$cef/steamwebhelper.exe"
 }
 
+step_display() {
+    # Used by ./cs2mac stretch: switches the monitor to a 4:3 mode while CS2 runs.
+    log "cs2mac-display (monitor mode switch for ./cs2mac stretch)"
+    mkdir -p "$ROOT/build"
+    swiftc -O -o "$ROOT/build/cs2mac-display" "$ROOT/tools/display/cs2mac-display.swift"
+}
+
 step_steamcfg() {
     log "Steam: disable the in-game overlay for CS2 (its orphaned helper crashes under Wine)"
     for f in "$STEAM_DIR"/userdata/*/config/localconfig.vdf; do
@@ -200,6 +207,9 @@ step_prefix() {
     "$WINE" reg add 'HKLM\System\CurrentControlSet\Hardware Profiles\Current\Software\Fonts' /v LogPixels /t REG_DWORD /d 96 /f >/dev/null
     # Crashing helpers (the Steam overlay after CS2 exits) must not open Wine Debugger windows.
     "$WINE" reg add 'HKCU\Software\Wine\WineDbg' /v ShowCrashDialog /t REG_DWORD /d 0 /f >/dev/null
+    # CS2 only: capture the displays while its window covers the screen. Wine's fullscreen window level
+    # sits under the macOS 27 menu bar; a captured display has no menu bar, Dock or other windows.
+    "$WINE" reg add 'HKCU\Software\Wine\AppDefaults\cs2.exe\Mac Driver' /v CaptureDisplaysForFullscreen /t REG_SZ /d y /f >/dev/null
     "$WINE" reg add 'HKCU\Software\Wine\Mac Driver' /v AllowSetGamma /t REG_DWORD /d 0 /f >/dev/null
     "$WINE" reg add 'HKCU\Software\Wine' /v Version /t REG_SZ /d win10 /f >/dev/null
     "$WINESERVER" -w
@@ -214,6 +224,6 @@ step_steam() {
     [ -f "$STEAM_DIR/steam.exe" ] || { echo "Steam installer did not produce steam.exe, see $LOGS/steam-install.log"; exit 1; }
 }
 
-steps=("$@"); [ ${#steps[@]} -gt 0 ] || steps=(deps wine dxvk moltenvk ntdll winemac gptk gamemode prefix steam webhelper steamcfg)
+steps=("$@"); [ ${#steps[@]} -gt 0 ] || steps=(deps wine dxvk moltenvk ntdll winemac gptk gamemode prefix steam webhelper steamcfg display)
 for s in "${steps[@]}"; do "step_$s"; done
 log "done. Next: ./cs2mac steam (log in, install Counter-Strike 2), then ./cs2mac play"

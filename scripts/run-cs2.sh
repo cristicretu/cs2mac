@@ -21,9 +21,12 @@ res=(-w "${CS2MAC_WIDTH:-1280}" -h "${CS2MAC_HEIGHT:-720}")
 mode=(-windowed -noborder)
 [ "${CS2MAC_WINDOWED:-0}" = 1 ] && mode=(-windowed)
 [ "${CS2MAC_FULLSCREEN:-0}" = 1 ] && mode=(-fullscreen)
-# Frame pacing: CS2's fps_max limiter sleeps between frames and Wine's sleeps are uneven on macOS, so
-# frames arrive in bursts. Default to vsync with no limiter; CS2MAC_FPS_MAX=<n> sets a cap instead.
-fps=(+mat_vsync 1 +fps_max 0)
+# Frame rate: vsync off, uncapped. With vsync on and the game below the refresh rate (~110 fps on a
+# 120/144 Hz display) every frame waits for the next refresh, so fps flips between full and half
+# rate. CS2MAC_VSYNC=1 turns it back on; CS2MAC_FPS_MAX=<n> caps instead (Wine's sleeps are uneven
+# on macOS, so the limiter paces worse than uncapped).
+fps=(+mat_vsync 0 +fps_max 0)
+[ "${CS2MAC_VSYNC:-0}" = 1 ] && fps=(+mat_vsync 1 +fps_max 0)
 [ -n "${CS2MAC_FPS_MAX:-}" ] && fps=(+mat_vsync 0 +fps_max "$CS2MAC_FPS_MAX")
 args=("${api[@]}" -nojoy -novid -condebug "${res[@]}" "${mode[@]}" "${fps[@]}" "$@")
 # By default hand the launch to the running Steam client (VAC secure servers). CS2MAC_DIRECT=1 starts
