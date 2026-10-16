@@ -32,4 +32,6 @@ args=("${api[@]}" -nojoy -novid -condebug +exec autoexec "${res[@]}" "${mode[@]}
 # By default hand the launch to the running Steam client (VAC secure servers). CS2MAC_DIRECT=1 starts
 # cs2.exe itself, always with -insecure so a test run can never join a VAC server.
 [ "${CS2MAC_DIRECT:-0}" = 1 ] && exec "$WINE" cs2.exe -steam -insecure "${args[@]}"
-exec "$WINE" "$STEAM_DIR/steam.exe" -applaunch 730 "${args[@]}"
+# -noverifyfiles: if the running Steam does not answer, this steam.exe bootstraps a new one, and its
+# file check would put the real steamwebhelper.exe back over the wrapper (seen 2026-10-16)
+exec "$WINE" "$STEAM_DIR/steam.exe" -noverifyfiles -applaunch 730 "${args[@]}"
